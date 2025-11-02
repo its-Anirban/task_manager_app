@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:provider/provider.dart';
-import 'package:task_manager_app/providers/auth_provider.dart';
-import 'package:task_manager_app/providers/task_provider.dart';
-import 'package:task_manager_app/providers/theme_provider.dart';
+import 'package:task_manager_app/blocs/auth_bloc/auth_bloc.dart';
+import 'package:task_manager_app/blocs/auth_bloc/auth_event.dart';
+import 'package:task_manager_app/blocs/task_bloc/task_bloc.dart';
+import 'package:task_manager_app/blocs/task_bloc/task_event.dart';
+import 'package:task_manager_app/blocs/task_bloc/task_state.dart';
+import 'package:task_manager_app/blocs/theme_bloc/theme_bloc.dart';
+import 'package:task_manager_app/blocs/theme_bloc/theme_event.dart';
+import 'package:task_manager_app/blocs/theme_bloc/theme_state.dart';
 import 'package:task_manager_app/screens/login_screen.dart';
 import 'package:task_manager_app/widgets/add_task_dialog.dart';
 import 'package:task_manager_app/widgets/task_card.dart';
@@ -18,14 +23,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late TaskProvider _taskProvider;
-
   @override
   void initState() {
     super.initState();
-    _taskProvider = Provider.of<TaskProvider>(context, listen: false);
+    // Load tasks when the screen is first shown
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _taskProvider.loadTasks();
+      context.read<TaskBloc>().add(LoadTasks());
     });
   }
 
@@ -34,40 +37,34 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (_) => AddTaskDialog(
         onDone: (title, desc) async {
-          try {
-            await _taskProvider.addTask(title, desc);
-            Fluttertoast.showToast(msg: 'Task added');
-          } catch (e) {
-            Fluttertoast.showToast(msg: 'Add failed: $e');
-          }
+          context.read<TaskBloc>().add(AddTask(title, desc));
+          Fluttertoast.showToast(msg: 'Task added');
+          return; // ensures Future<void> is returned correctly
         },
       ),
     );
   }
 
-  Future<void> _deleteTask(int id) async {
-    try {
-      await _taskProvider.deleteTask(id);
-      Fluttertoast.showToast(msg: 'Deleted');
-    } catch (e) {
-      Fluttertoast.showToast(msg: 'Delete failed: $e');
-    }
+  void _deleteTask(int id) {
+    context.read<TaskBloc>().add(DeleteTask(id));
+    Fluttertoast.showToast(msg: 'Deleted');
   }
 
-  Future<void> _logout() async {
-    await Provider.of<AuthProvider>(context, listen: false).logout();
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+  void _logout() {
+    context.read<AuthBloc>().add(LogoutRequested());
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Consumer2<TaskProvider, ThemeProvider>(
-      builder: (context, tp, themeProvider, _) {
+    return BlocBuilder<ThemeBloc, ThemeState>(
+      builder: (context, themeState) {
+        final isDarkMode = themeState.isDarkMode;
+
         return Scaffold(
           backgroundColor: theme.scaffoldBackgroundColor,
           appBar: AppBar(
@@ -81,14 +78,13 @@ class _HomeScreenState extends State<HomeScreen> {
             elevation: 2,
             actions: [
               IconButton(
-                tooltip:
-                    themeProvider.isDarkMode ? 'Light Mode' : 'Dark Mode',
+                tooltip: isDarkMode ? 'Light Mode' : 'Dark Mode',
                 icon: Icon(
-                  themeProvider.isDarkMode
-                      ? Icons.wb_sunny_outlined
-                      : Icons.nightlight_round,
+                  isDarkMode ? Icons.wb_sunny_outlined : Icons.nightlight_round,
                 ),
-                onPressed: themeProvider.toggleTheme,
+                onPressed: () {
+                  context.read<ThemeBloc>().add(ToggleTheme());
+                },
               ),
               IconButton(
                 onPressed: _logout,
@@ -97,49 +93,78 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          body: tp.loading
-              ? const Center(child: CircularProgressIndicator())
-              : tp.tasks.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No tasks yet.\nTap “Add Task” to create one.',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.7),
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          height: 1.4,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: () async => tp.loadTasks(),
-                      child: MasonryGridView.count(
-                        padding: const EdgeInsets.all(16),
-                        crossAxisCount:
-                            MediaQuery.of(context).size.width < 600 ? 2 : 3,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        physics: const BouncingScrollPhysics(
-                          parent: AlwaysScrollableScrollPhysics(),
-                        ),
-                        itemCount: tp.tasks.length,
-                        itemBuilder: (context, i) {
-                          final t = tp.tasks[i];
-                          return AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 250),
-                            child: TaskCard(
-                              key: ValueKey(t.id ?? t.title),
-                              task: t,
-                              onDelete: () {
-                                if (t.id != null) _deleteTask(t.id!);
-                              },
-                            ),
-                          );
+
+          // ---- BODY ----
+          body: BlocBuilder<TaskBloc, TaskState>(
+            builder: (context, state) {
+              if (state.isLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if ((state.errorMessage ?? '').isNotEmpty) {
+                return Center(
+                  child: Text(
+                    'Error: ${state.errorMessage}',
+                    style: TextStyle(
+                      color: theme.colorScheme.error,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 16,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }
+
+              if (state.tasks.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No tasks yet.\nTap “Add Task” to create one.',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () async {
+                  context.read<TaskBloc>().add(LoadTasks());
+                  return Future.value(); // ✅ fixes the "body might complete normally" error
+                },
+                child: MasonryGridView.count(
+                  padding: const EdgeInsets.all(16),
+                  crossAxisCount: MediaQuery.of(context).size.width < 600
+                      ? 2
+                      : 3,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  itemCount: state.tasks.length,
+                  itemBuilder: (context, i) {
+                    final t = state.tasks[i];
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      child: TaskCard(
+                        key: ValueKey(t.id ?? t.title),
+                        task: t,
+                        onDelete: () {
+                          if (t.id != null) _deleteTask(t.id!);
                         },
                       ),
-                    ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+
+          // ---- FLOATING BUTTON ----
           floatingActionButton: FloatingActionButton.extended(
             onPressed: _openAdd,
             backgroundColor: theme.colorScheme.primary,
@@ -148,10 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.add),
             label: const Text(
               'Add Task',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
             ),
           ),
         );

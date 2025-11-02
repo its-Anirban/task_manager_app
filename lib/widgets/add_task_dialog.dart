@@ -52,29 +52,31 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
       ),
       contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
       actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-
-      // Simpler, safer content: fixed constraints + bounded TextFields
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Form(
           key: _formKey,
           child: Column(
-            mainAxisSize: MainAxisSize.min, // important: dialog hugs content
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Title: fixed height for predictable layout
+              // Title field – pressing Enter submits the form
               SizedBox(
                 height: 52,
                 child: TextFormField(
                   controller: _titleCtrl,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _handleAddTask(), // ← Enter triggers submit
                   decoration: InputDecoration(
                     labelText: 'Title',
                     alignLabelWithHint: true,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Title required' : null,
@@ -82,30 +84,33 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
               ),
               const SizedBox(height: 12),
 
-              // Description: bounded height so expands:true is safe
+              // Description – allows multiline input but Enter+Ctrl also submits
               SizedBox(
-                height: 140, // fixed height prevents unbounded/zero-size issues
+                height: 140,
                 child: TextFormField(
                   controller: _descCtrl,
                   expands: true,
                   maxLines: null,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  onEditingComplete: _handleAddTask, // Enter on desktop triggers
                   decoration: InputDecoration(
                     labelText: 'Description',
-                    alignLabelWithHint: true, // label at top
+                    alignLabelWithHint: true,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                   ),
-                  keyboardType: TextInputType.multiline,
                 ),
               ),
             ],
           ),
         ),
       ),
-
       actions: [
         TextButton(
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
@@ -118,8 +123,9 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: theme.colorScheme.primary,
             foregroundColor: theme.colorScheme.onPrimary,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             elevation: 2,
           ),

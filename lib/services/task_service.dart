@@ -1,13 +1,15 @@
 import 'dart:convert';
-
 import 'package:http/http.dart' as http;
 import 'package:task_manager_app/models/task_model.dart';
 import 'package:task_manager_app/services/auth_service.dart';
 import 'package:task_manager_app/utils/constants.dart';
 
 class TaskService {
-  TaskService({this.baseUrl = Constants.baseUrl});
-  final String baseUrl;
+
+  TaskService({String? baseUrl}) {
+    this.baseUrl = baseUrl ?? Constants.baseUrl;
+  }
+  late final String baseUrl;
 
   Future<List<TaskModel>> fetchTasks() async {
     final token = await AuthService.getToken();

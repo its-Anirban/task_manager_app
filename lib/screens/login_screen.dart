@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:provider/provider.dart';
-import 'package:task_manager_app/providers/auth_provider.dart';
-import 'package:task_manager_app/providers/theme_provider.dart';
+import 'package:task_manager_app/blocs/auth_bloc/auth_bloc.dart';
+import 'package:task_manager_app/blocs/auth_bloc/auth_event.dart';
+import 'package:task_manager_app/blocs/auth_bloc/auth_state.dart';
+import 'package:task_manager_app/blocs/theme_bloc/theme_bloc.dart';
+import 'package:task_manager_app/blocs/theme_bloc/theme_event.dart';
+import 'package:task_manager_app/blocs/theme_bloc/theme_state.dart';
 import 'package:task_manager_app/screens/home_screen.dart';
 import 'package:task_manager_app/screens/register_screen.dart';
 
@@ -18,36 +22,20 @@ class _LoginScreenState extends State<LoginScreen> {
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  bool _loading = false;
   bool _obscurePass = true;
 
-  Future<void> _login() async {
+  void _onLoginPressed(BuildContext context) {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _loading = true);
 
-    final auth = Provider.of<AuthProvider>(context, listen: false);
     final username = _userCtrl.text.trim();
     final password = _passCtrl.text.trim();
 
-    try {
-      await auth.login(username, password);
-      if (!mounted) return;
-
-      Fluttertoast.showToast(msg: 'Login successful');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
-    } catch (e) {
-      if (mounted) Fluttertoast.showToast(msg: e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+    context.read<AuthBloc>().add(LoginRequested(username, password));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final themeProvider = Provider.of<ThemeProvider>(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -58,13 +46,20 @@ class _LoginScreenState extends State<LoginScreen> {
         foregroundColor: theme.colorScheme.onPrimary,
         elevation: 2,
         actions: [
-          IconButton(
-            icon: Icon(
-              themeProvider.isDarkMode ? Icons.wb_sunny_outlined : Icons.nightlight_round,
-              color: theme.colorScheme.onPrimary,
-            ),
-            tooltip: themeProvider.isDarkMode ? 'Light Mode' : 'Dark Mode',
-            onPressed: themeProvider.toggleTheme,
+          BlocBuilder<ThemeBloc, ThemeState>(
+            builder: (context, themeState) {
+              final isDarkMode = themeState.isDarkMode;
+              return IconButton(
+                icon: Icon(
+                  isDarkMode ? Icons.wb_sunny_outlined : Icons.nightlight_round,
+                  color: theme.colorScheme.onPrimary,
+                ),
+                tooltip: isDarkMode ? 'Light Mode' : 'Dark Mode',
+                onPressed: () {
+                  context.read<ThemeBloc>().add(ToggleTheme());
+                },
+              );
+            },
           ),
         ],
       ),
@@ -90,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Welcome Back',
+                        'Welcome',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: theme.colorScheme.primary,
@@ -103,6 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 280,
                         child: TextFormField(
                           controller: _userCtrl,
+                          textInputAction: TextInputAction.next,
                           decoration: InputDecoration(
                             labelText: 'Username',
                             prefixIcon: const Icon(Icons.person_outline, size: 20),
@@ -114,15 +110,16 @@ class _LoginScreenState extends State<LoginScreen> {
                               (v == null || v.trim().isEmpty) ? 'Enter username' : null,
                         ),
                       ),
-
                       const SizedBox(height: 18),
 
-                      // Password
+                      // Password (Enter key triggers login)
                       SizedBox(
                         width: 280,
                         child: TextFormField(
                           controller: _passCtrl,
                           obscureText: _obscurePass,
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _onLoginPressed(context), // ← Enter triggers submit
                           decoration: InputDecoration(
                             labelText: 'Password',
                             prefixIcon: const Icon(Icons.lock_outline, size: 20),
@@ -143,32 +140,50 @@ class _LoginScreenState extends State<LoginScreen> {
                               (v == null || v.isEmpty) ? 'Enter password' : null,
                         ),
                       ),
-
                       const SizedBox(height: 28),
 
-                      _loading
-                          ? const CircularProgressIndicator()
-                          : SizedBox(
-                              width: 160,
-                              height: 46,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: theme.colorScheme.primary,
-                                  foregroundColor: theme.colorScheme.onPrimary,
-                                  textStyle: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                onPressed: _login,
-                                child: const Text('Login'),
-                              ),
-                            ),
+                      // BlocConsumer handles Login button state
+                      BlocConsumer<AuthBloc, AuthState>(
+                        listener: (context, state) {
+                          if (state.errorMessage != null) {
+                            Fluttertoast.showToast(msg: state.errorMessage!);
+                          }
+                          if (state.isAuthenticated) {
+                            Fluttertoast.showToast(msg: 'Login successful');
+                            Navigator.of(context).pushReplacement(
+                              MaterialPageRoute(builder: (_) => const HomeScreen()),
+                            );
+                          }
+                        },
+                        builder: (context, state) {
+                          if (state.isLoading) {
+                            return const CircularProgressIndicator();
+                          }
 
+                          return SizedBox(
+                            width: 160,
+                            height: 46,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: theme.colorScheme.primary,
+                                foregroundColor: theme.colorScheme.onPrimary,
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              onPressed: () => _onLoginPressed(context),
+                              child: const Text('Login'),
+                            ),
+                          );
+                        },
+                      ),
                       const SizedBox(height: 16),
+
+                      // Register navigation
                       TextButton(
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => const RegisterScreen()),
