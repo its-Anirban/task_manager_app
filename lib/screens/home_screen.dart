@@ -26,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Load tasks when the screen is first shown
+    // Load tasks initially
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<TaskBloc>().add(LoadTasks());
     });
@@ -39,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> {
         onDone: (title, desc) async {
           context.read<TaskBloc>().add(AddTask(title, desc));
           Fluttertoast.showToast(msg: 'Task added');
-          return; // ensures Future<void> is returned correctly
         },
       ),
     );
@@ -47,14 +46,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _deleteTask(int id) {
     context.read<TaskBloc>().add(DeleteTask(id));
-    Fluttertoast.showToast(msg: 'Deleted');
+    Fluttertoast.showToast(msg: 'Task deleted');
   }
 
   void _logout() {
     context.read<AuthBloc>().add(LogoutRequested());
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+  }
+
+  void _refreshTasks() {
+    context.read<TaskBloc>().add(LoadTasks());
   }
 
   @override
@@ -132,14 +135,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
               return RefreshIndicator(
                 onRefresh: () async {
-                  context.read<TaskBloc>().add(LoadTasks());
-                  return Future.value(); // ✅ fixes the "body might complete normally" error
+                  _refreshTasks();
+                  return Future.value();
                 },
                 child: MasonryGridView.count(
                   padding: const EdgeInsets.all(16),
-                  crossAxisCount: MediaQuery.of(context).size.width < 600
-                      ? 2
-                      : 3,
+                  crossAxisCount:
+                      MediaQuery.of(context).size.width < 600 ? 2 : 3,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
                   physics: const BouncingScrollPhysics(
@@ -156,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         onDelete: () {
                           if (t.id != null) _deleteTask(t.id!);
                         },
+                        onEdit: _refreshTasks,
                       ),
                     );
                   },
