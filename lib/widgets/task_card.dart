@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:task_manager_app/models/task_model.dart';
+import 'package:task_manager_app/services/task_service.dart';
 
 class TaskCard extends StatelessWidget {
-  const TaskCard({super.key, required this.task, this.onDelete});
+  const TaskCard({super.key, required this.task, this.onDelete, this.onEdit});
+
   final TaskModel task;
   final VoidCallback? onDelete;
+  final VoidCallback? onEdit;
 
   static final List<Color> _cardColors = [
     const Color(0xFFFFF9C4), // pastel yellow
@@ -25,7 +28,6 @@ class TaskCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Calculate adaptive background with clean alpha values
     final base = randomColor;
     final alpha = isDark ? 0.65 : 0.95;
     final bgColor = Color.fromARGB(
@@ -59,16 +61,16 @@ class TaskCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onLongPress: onDelete,
           splashColor: theme.colorScheme.primary.withValues(alpha: 0.12),
           highlightColor: theme.colorScheme.primary.withValues(alpha: 0.06),
+          onLongPress: onDelete,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Column(
-              mainAxisSize: MainAxisSize.min, // Let height adjust to content
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title row
+                // Title + action buttons
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -83,20 +85,36 @@ class TaskCard extends StatelessWidget {
                         softWrap: true,
                       ),
                     ),
-                    GestureDetector(
-                      onTap: onDelete,
-                      child: Icon(
-                        Icons.delete_outline,
+                    // Edit icon
+                    IconButton(
+                      icon: Icon(
+                        Icons.edit_outlined,
+                        size: 20,
                         color: isDark
                             ? Colors.white70
                             : const Color.fromARGB(160, 0, 0, 0),
-                        size: 20,
                       ),
+                      onPressed: () => _showEditDialog(context),
+                      tooltip: 'Edit Task',
+                    ),
+                    // Delete icon
+                    IconButton(
+                      icon: Icon(
+                        Icons.delete_outline,
+                        size: 20,
+                        color: isDark
+                            ? Colors.white70
+                            : const Color.fromARGB(160, 0, 0, 0),
+                      ),
+                      onPressed: onDelete,
+                      tooltip: 'Delete Task',
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 6),
-                // Description text
+
+                // Description
                 if (task.description.trim().isNotEmpty)
                   Text(
                     task.description,
@@ -112,6 +130,73 @@ class TaskCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context) {
+    final titleController = TextEditingController(text: task.title);
+    final descController = TextEditingController(text: task.description);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Edit Task'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(labelText: 'Title'),
+              ),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(labelText: 'Description'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final service = TaskService();
+                final updatedTask = TaskModel(
+                  id: task.id,
+                  title: titleController.text.trim(),
+                  description: descController.text.trim(),
+                );
+
+                // Close dialog immediately BEFORE async call
+                Navigator.pop(ctx);
+
+                try {
+                  await service.updateTask(updatedTask);
+
+                  // Use parent context safely after await
+                  if (context.mounted) {
+                    onEdit?.call(); // trigger refresh
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Task updated successfully'),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error updating task: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
